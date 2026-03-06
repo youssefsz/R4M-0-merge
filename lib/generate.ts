@@ -22,6 +22,88 @@ function consistencyLabel(input: AnalysisResult["consistencyLabel"]): string {
   return "Low";
 }
 
+function compactAiInput(raw: RawGitHubData, analysis: AnalysisResult) {
+  return {
+    profile: {
+      username: raw.username,
+      displayName: raw.displayName,
+      bio: raw.bio,
+      publicRepos: raw.publicRepos,
+      createdAt: raw.createdAt,
+    },
+    topRepos: raw.topRepos.slice(0, 5).map((repo) => ({
+      fullName: repo.fullName,
+      description: repo.description,
+      stars: repo.stars,
+      forks: repo.forks,
+      openIssues: repo.openIssues,
+      language: repo.language,
+      updatedAt: repo.updatedAt,
+    })),
+    languageDistribution: raw.languageDistribution.slice(0, 6),
+    contributionMetrics: raw.contributionMetrics,
+    activity: raw.activity,
+    analysis,
+  };
+}
+
+function extractJsonObject(content: string): Record<string, unknown> {
+  const trimmed = content.trim();
+  if (!trimmed) {
+    throw new Error("OpenRouter returned empty content");
+  }
+
+  // Prefer fenced JSON block when present.
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const candidate = fenced?.[1]?.trim() || trimmed;
+
+  try {
+    return JSON.parse(candidate) as Record<string, unknown>;
+  } catch {
+    // Fall back to first JSON object-like region in case model adds prose.
+    const first = candidate.indexOf("{");
+    const last = candidate.lastIndexOf("}");
+    if (first !== -1 && last > first) {
+      return JSON.parse(candidate.slice(first, last + 1)) as Record<string, unknown>;
+    }
+    throw new Error("OpenRouter response did not contain parseable JSON");
+  }
+}
+
+function normalizeSummary(input: string): string {
+  return input
+    .replace(/```(?:json)?/gi, "")
+    .replace(/```/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeBullets(input: string[]): string[] {
+  const seen = new Set<string>();
+  const cleaned: string[] = [];
+
+  for (const bullet of input) {
+    const normalized = bullet
+      .replace(/^[\s\-*•]+/, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!normalized) continue;
+
+    const punctuated = /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
+    const key = punctuated.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cleaned.push(punctuated);
+  }
+
+  return cleaned;
+}
+
+function hasMetricSignal(text: string): boolean {
+  return /\d/.test(text);
+}
+
 /* ── Recruiter-ready bullet generation ───────────────────────────── */
 
 function buildBullets(raw: RawGitHubData, analysis: AnalysisResult): string[] {
@@ -393,95 +475,107 @@ export async function generateResume(raw: RawGitHubData, analysis: AnalysisResul
   let bullets: string[] = [];
 
   const openRouterApiKey = process.env.OPENROUTER_API_KEY;
+  const preferredModel = process.env.OPENROUTER_MODEL?.trim();
+  const modelCandidates = Array.from(
+    new Set(
+      [
+        preferredModel,
+        "google/gemini-2.0-flash-lite-preview-02-05:free",
+        "stepfun/step-3.5-flash:free",
+      ].filter((model): model is string => Boolean(model)),
+    ),
+  );
 
   if (openRouterApiKey) {
     console.log("[generateResume] Attempting OpenRouter API call for:", displayName);
     try {
-      const prompt = `You are an expert technical recruiter and resume writer. Based on the following GitHub data and analysis for a developer named ${displayName}, generate a professional summary and a list of bullet points highlighting their impact and open-source experience.
-      
-Rules:
-1. The summary should be a single paragraph.
-2. The bullets should be 3-5 impressive bullet points. Focus on quantifiable metrics, languages, and collaboration.
-3. Return ONLY a JSON object with the keys "summary" (string) and "bullets" (array of strings), and nothing else.
+      const prompt = `You are an elite technical recruiter and resume writer.
 
-Data:
-${JSON.stringify({ raw, analysis }, null, 2)}`;
+Using the GitHub profile snapshot below, return:
+- "summary": one paragraph
+- "bullets": 4 to 5 resume bullets emphasizing measurable outcomes, collaboration, technologies, and consistency
 
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${openRouterApiKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: "stepfun/step-3.5-flash:free",
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "user", content: prompt }
-          ],
-          stream: true,
-          include_reasoning: true
-        })
-      });
+Output requirements:
+- Return valid JSON only.
+- Use exactly: {"summary":"...","bullets":["..."]}.
+- Do not include markdown fences.
+- Do not invent metrics. Use only numbers present in the provided data.
+- Avoid generic language ("hardworking", "passionate", "responsible for").
+- Start each bullet with a strong action verb and keep each bullet under 30 words.
 
-      if (!response.ok) {
-        throw new Error(`OpenRouter API error: ${response.status} ${response.statusText}`);
-      }
+GitHub profile snapshot:
+${JSON.stringify(compactAiInput(raw, analysis), null, 2)}`;
 
-      if (!response.body) {
-        throw new Error("OpenRouter API returned no body.");
-      }
+      let lastError: Error | null = null;
 
-      let content = "";
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let done = false;
+      for (const model of modelCandidates) {
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${openRouterApiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": process.env.APP_URL || "http://localhost:3000",
+            "X-Title": "GitHub Username Resume Generator",
+          },
+          body: JSON.stringify({
+            model,
+            response_format: { type: "json_object" },
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.2,
+          }),
+        });
 
-      while (!done) {
-        const { value, done: readerDone } = await reader.read();
-        done = readerDone;
-        if (value) {
-          const chunkString = decoder.decode(value, { stream: true });
-          const lines = chunkString.split('\\n');
+        if (!response.ok) {
+          const body = await response.text();
+          lastError = new Error(`OpenRouter API error (${model}): ${response.status} ${response.statusText} — ${body}`);
+          console.warn(lastError.message);
+          continue;
+        }
 
-          for (const line of lines) {
-            if (line.trim() === '' || line.startsWith(':')) continue;
-            if (line === 'data: [DONE]') continue;
+        const json = await response.json();
 
-            if (line.startsWith('data: ')) {
-              try {
-                const dataStr = line.replace('data: ', '');
-                const data = JSON.parse(dataStr);
+        if (json.usage) {
+          console.log("[generateResume] Model:", model, "tokens:", json.usage.total_tokens);
+        }
 
-                const delta = data.choices?.[0]?.delta?.content;
-                if (delta) {
-                  content += delta;
-                }
+        const messageContent = json.choices?.[0]?.message?.content;
+        const content =
+          typeof messageContent === "string"
+            ? messageContent
+            : Array.isArray(messageContent)
+              ? messageContent.map((part: { text?: string }) => part.text || "").join("")
+              : "";
+        const parsed = extractJsonObject(content);
 
-                if (data.usage) {
-                  const reasoning = data.usage.reasoningTokens || data.usage.completionTokensDetails?.reasoningTokens;
-                  if (reasoning) console.log("\\n[generateResume] Reasoning tokens used:", reasoning);
-                  console.log("[generateResume] Total tokens used:", data.usage.totalTokens);
-                }
-              } catch (err) {
-                // Ignore incomplete JSON chunks from split boundaries
-              }
-            }
+        const aiSummary = parsed.summary;
+        const aiBullets = parsed.bullets;
+
+        if (typeof aiSummary === "string" && Array.isArray(aiBullets)) {
+          const normalizedAiSummary = normalizeSummary(aiSummary);
+          const normalizedAiBullets = normalizeBullets(aiBullets.filter((item): item is string => typeof item === "string"));
+          const fallbackBullets = buildBullets(raw, analysis);
+
+          let mergedBullets = [...normalizedAiBullets];
+          if (mergedBullets.length < 4) {
+            mergedBullets = normalizeBullets([...mergedBullets, ...fallbackBullets]);
+          }
+
+          if (mergedBullets.filter(hasMetricSignal).length < 2) {
+            mergedBullets = normalizeBullets([...mergedBullets, ...fallbackBullets]);
+          }
+
+          if (normalizedAiSummary.length >= 40 && mergedBullets.length >= 3) {
+            summary = normalizedAiSummary;
+            bullets = mergedBullets.slice(0, 5);
+            break;
           }
         }
+
+        lastError = new Error(`OpenRouter response format invalid for model ${model}`);
       }
 
-      // Sometimes models return markdown blocks even with response_format json_object
-      if (content.startsWith("\`\`\`json")) {
-        content = content.replace(/^\`\`\`json\\n?/, '').replace(/\\n?\`\`\`$/, '');
-      }
-
-      const parsed = JSON.parse(content);
-      if (parsed.summary && Array.isArray(parsed.bullets)) {
-        summary = parsed.summary;
-        bullets = parsed.bullets;
-      } else {
-        throw new Error("Invalid format from OpenRouter API");
+      if (!summary || bullets.length === 0) {
+        throw lastError || new Error("OpenRouter did not return valid content");
       }
     } catch (e) {
       console.error("Failed to generate with OpenRouter, falling back to basic generation:", e);

@@ -14,8 +14,11 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "GitHub Resume Generator",
-  description: "Generate recruiter-ready resume sections from real GitHub activity.",
+  title: "Merge",
+  description: "Generate standout recruiter-ready resumes from real GitHub activity.",
+  icons: {
+    icon: "/favicon.ico",
+  },
 };
 
 export default function RootLayout({
