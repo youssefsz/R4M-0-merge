@@ -1,4 +1,5 @@
 import { AnalysisResult, RawGitHubData, ResumeContent } from "@/types/resume";
+import { OpenRouter } from "@openrouter/sdk";
 
 function formatLanguageList(languages: { language: string }[]): string {
   if (languages.length === 0) return "multiple languages";
@@ -395,6 +396,7 @@ export async function generateResume(raw: RawGitHubData, analysis: AnalysisResul
   const openRouterApiKey = process.env.OPENROUTER_API_KEY;
 
   if (openRouterApiKey) {
+    console.log("[generateResume] Attempting OpenRouter API call for:", displayName);
     try {
       const prompt = `You are an expert technical recruiter and resume writer. Based on the following GitHub data and analysis for a developer named ${displayName}, generate a professional summary and a list of bullet points highlighting their impact and open-source experience.
       
@@ -406,39 +408,45 @@ Rules:
 Data:
 ${JSON.stringify({ raw, analysis }, null, 2)}`;
 
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${openRouterApiKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: "google/gemini-2.0-flash-lite-preview-02-05:free",
+      const openrouter = new OpenRouter({ apiKey: openRouterApiKey });
+      // @ts-ignore - The @openrouter/sdk version types might conflict with direct object assignment
+      const stream = await openrouter.chat.send({
+        messages: [
+          { role: "user", content: prompt }
+        ],
+        chatGenerationParams: {
+          model: "stepfun/step-3.5-flash:free",
           response_format: { type: "json_object" },
-          messages: [
-            { role: "user", content: prompt }
-          ]
-        })
+          stream: true
+        }
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        let content = data.choices[0].message.content;
-
-        // Sometimes models return markdown blocks even with response_format json_object
-        if (content.startsWith("\`\`\`json")) {
-          content = content.replace(/^\`\`\`json\n?/, '').replace(/\n?\`\`\`$/, '');
+      let content = "";
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta?.content;
+        if (delta) {
+          content += delta;
         }
 
-        const parsed = JSON.parse(content);
-        if (parsed.summary && Array.isArray(parsed.bullets)) {
-          summary = parsed.summary;
-          bullets = parsed.bullets;
-        } else {
-          throw new Error("Invalid format from OpenRouter");
+        if (chunk.usage) {
+          // OpenRouter API returns reasoningTokens in various ways depending on the model/SDK version
+          const reasoning = (chunk.usage as any).reasoningTokens || (chunk.usage as any).completionTokensDetails?.reasoningTokens;
+          if (reasoning) console.log("\\n[generateResume] Reasoning tokens used:", reasoning);
+          console.log("[generateResume] Total tokens used:", chunk.usage.totalTokens);
         }
+      }
+
+      // Sometimes models return markdown blocks even with response_format json_object
+      if (content.startsWith("\`\`\`json")) {
+        content = content.replace(/^\`\`\`json\\n?/, '').replace(/\\n?\`\`\`$/, '');
+      }
+
+      const parsed = JSON.parse(content);
+      if (parsed.summary && Array.isArray(parsed.bullets)) {
+        summary = parsed.summary;
+        bullets = parsed.bullets;
       } else {
-        throw new Error(`OpenRouter API error: ${response.status} ${response.statusText}`);
+        throw new Error("Invalid format from OpenRouter API");
       }
     } catch (e) {
       console.error("Failed to generate with OpenRouter, falling back to basic generation:", e);
