@@ -10,7 +10,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@openrouter/sdk": "^0.9.11",
     "next": "^16.0.0",
     "pdf-lib": "^1.17.1",
     "react": "^19.0.0",

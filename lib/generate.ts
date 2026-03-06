@@ -1,5 +1,4 @@
 import { AnalysisResult, RawGitHubData, ResumeContent } from "@/types/resume";
-import { OpenRouter } from "@openrouter/sdk";
 
 function formatLanguageList(languages: { language: string }[]): string {
   if (languages.length === 0) return "multiple languages";
@@ -408,30 +407,67 @@ Rules:
 Data:
 ${JSON.stringify({ raw, analysis }, null, 2)}`;
 
-      const openrouter = new OpenRouter({ apiKey: openRouterApiKey });
-      const stream = await openrouter.chat.send({
-        chatGenerationParams: {
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${openRouterApiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "stepfun/step-3.5-flash:free",
+          response_format: { type: "json_object" },
           messages: [
             { role: "user", content: prompt }
           ],
-          model: "stepfun/step-3.5-flash:free",
-          responseFormat: { type: "json_object" },
-          stream: true
-        }
+          stream: true,
+          include_reasoning: true
+        })
       });
 
-      let content = "";
-      for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta?.content;
-        if (delta) {
-          content += delta;
-        }
+      if (!response.ok) {
+        throw new Error(`OpenRouter API error: ${response.status} ${response.statusText}`);
+      }
 
-        if (chunk.usage) {
-          // OpenRouter API returns reasoningTokens in various ways depending on the model/SDK version
-          const reasoning = (chunk.usage as any).reasoningTokens || (chunk.usage as any).completionTokensDetails?.reasoningTokens;
-          if (reasoning) console.log("\\n[generateResume] Reasoning tokens used:", reasoning);
-          console.log("[generateResume] Total tokens used:", chunk.usage.totalTokens);
+      if (!response.body) {
+        throw new Error("OpenRouter API returned no body.");
+      }
+
+      let content = "";
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+        if (value) {
+          const chunkString = decoder.decode(value, { stream: true });
+          const lines = chunkString.split('\\n');
+
+          for (const line of lines) {
+            if (line.trim() === '' || line.startsWith(':')) continue;
+            if (line === 'data: [DONE]') continue;
+
+            if (line.startsWith('data: ')) {
+              try {
+                const dataStr = line.replace('data: ', '');
+                const data = JSON.parse(dataStr);
+
+                const delta = data.choices?.[0]?.delta?.content;
+                if (delta) {
+                  content += delta;
+                }
+
+                if (data.usage) {
+                  const reasoning = data.usage.reasoningTokens || data.usage.completionTokensDetails?.reasoningTokens;
+                  if (reasoning) console.log("\\n[generateResume] Reasoning tokens used:", reasoning);
+                  console.log("[generateResume] Total tokens used:", data.usage.totalTokens);
+                }
+              } catch (err) {
+                // Ignore incomplete JSON chunks from split boundaries
+              }
+            }
+          }
         }
       }
 

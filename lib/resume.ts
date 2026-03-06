@@ -4,7 +4,7 @@ import { generateResume } from "@/lib/generate";
 import { collectGitHubData } from "@/lib/github";
 import { ResumeResponse } from "@/types/resume";
 
-const RESUME_PIPELINE_VERSION = "resume-v3-openrouter-v1";
+const RESUME_PIPELINE_VERSION = "resume-v4-openrouter-fetch";
 
 async function buildResume(username: string): Promise<ResumeResponse> {
   const raw = await collectGitHubData(username);
