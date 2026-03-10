@@ -1,99 +1,214 @@
-# GitHub Username -> Resume Generator
+<h1 align="center">Merge</h1>
 
-A production-ready Next.js (App Router) web app that converts public GitHub activity into recruiter-focused resume content.
+<p align="center">
+  GitHub username to recruiter-ready resume generator
+</p>
 
-## Features
-- Username input with loading, validation, and error states
-- GitHub REST API ingestion (no scraping)
-- Data analysis for language focus, contribution quality, and activity recency
-- AI-Powered recruiter-ready bullet generation and summaries via OpenRouter
-- Export options:
-  - Markdown (copy + download)
-  - LaTeX (download)
-  - PDF (server-generated, Vercel-compatible)
-- Cache-aware API responses and graceful rate-limit handling
+<p align="center">
+  <a href="https://github.com/R4M-0/merge">
+    <img src="https://img.shields.io/badge/version-1.0.0-blue.svg" alt="Version 1.0.0" />
+  </a>
+  <a href="https://nextjs.org/">
+    <img src="https://img.shields.io/badge/Next.js-16-black.svg" alt="Next.js 16" />
+  </a>
+  <a href="https://github.com/R4M-0/merge">
+    <img src="https://img.shields.io/github/stars/R4M-0/merge?style=social" alt="GitHub stars" />
+  </a>
+</p>
 
-## Tech Stack
-- Next.js 16 (App Router)
-- TypeScript
-- Node runtime API routes
-- `pdf-lib` for server-side PDF generation
+---
+
+## Support the Project
+
+If `Merge` is useful to you and you want to support further development:
+
+`https://buymeacoffee.com/r4m0`
+
+---
+
+## Highlights
+
+- Route-based resume generation via `/<github-username>`
+- GitHub REST API ingestion with validation, caching, and rate-limit handling
+- Recruiter-focused Markdown, LaTeX, and PDF resume exports
+- Signal-first analysis: languages, repository quality, contribution metrics, and activity recency
+- Optional AI-enhanced resume writing via OpenRouter
+- Production-ready Next.js 16 App Router setup for Vercel deployment
+- Animated UI with dark/light theme support and shareable username routes
 
 ## Project Structure
 
 ```text
-app/
-  api/
-    resume/route.ts          # Main generation endpoint
-    resume/pdf/route.ts      # PDF export endpoint
-  globals.css
-  layout.tsx
-  page.tsx                   # Main UI
-lib/
-  analyze.ts                 # Insight extraction and focus-area detection
-  generate.ts                # Resume bullet and export-text generation
-  github.ts                  # GitHub API client + metric collection
-  pdf.ts                     # Markdown -> PDF renderer
-  resume.ts                  # Pipeline orchestration + caching
-types/
-  resume.ts                  # Shared domain types
+merge/
+├── app/
+│   ├── [username]/page.tsx      # Direct route resume generation
+│   ├── api/
+│   │   ├── resume/route.ts      # Resume JSON endpoint
+│   │   └── resume/pdf/route.ts  # PDF export endpoint
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── page.tsx                 # Landing page
+├── components/
+│   └── resume-shell.tsx         # Shared UI shell
+├── lib/
+│   ├── analyze.ts               # Signal extraction and focus analysis
+│   ├── generate.ts              # Resume generation
+│   ├── github.ts                # GitHub API client and metrics collection
+│   ├── pdf.ts                   # Markdown to PDF rendering
+│   └── resume.ts                # Resume pipeline orchestration + caching
+├── types/
+│   └── resume.ts                # Shared domain types
+├── examples/
+│   └── sample-output.md
+└── package.json
 ```
 
-## Environment Variables
-Create `.env.local`:
+## Requirements
 
-```bash
-GITHUB_TOKEN=ghp_your_token_here
-OPENROUTER_API_KEY=sk-or-v1-your_openrouter_key
+- Node.js 20+
+- npm
+- GitHub token recommended for higher API rate limits
+- OpenRouter API key optional for AI-enhanced writing
+
+## Quick Start
+
+1. Create `.env.local`:
+
+```env
+GITHUB_TOKEN=
+OPENROUTER_API_KEY=
+NEXT_PUBLIC_STAR_ME_URL=https://github.com/R4M-0/merge
 ```
 
-Notes:
-- `GITHUB_TOKEN` is optional but strongly recommended for higher rate limits. Use a fine-grained personal access token with read-only public metadata access.
-- `OPENROUTER_API_KEY` is optional but highly recommended to power the dynamic AI resume generation (defaults to a static builder if omitted). You can use free models like `google/gemini-2.0-flash-lite-preview-02-05:free`.
-
-## Local Development
+2. Install dependencies:
 
 ```bash
 npm install
+```
+
+3. Start development:
+
+```bash
 npm run dev
 ```
 
-App runs at `http://localhost:3000`.
+4. Open:
+
+```text
+http://localhost:3000
+```
+
+5. Test direct username routes:
+
+```text
+http://localhost:3000/R4M-0
+```
+
+## Environment Variables
+
+### `GITHUB_TOKEN`
+
+Optional but strongly recommended. Used to avoid low unauthenticated GitHub API rate limits.
+
+Use a fine-grained personal access token with read access to public metadata.
+
+### `OPENROUTER_API_KEY`
+
+Optional. When provided, `Merge` can generate stronger recruiter-style summaries and bullets using an LLM fallback/enhancement path.
+
+If omitted, the app still works using deterministic local generation.
+
+### `NEXT_PUBLIC_STAR_ME_URL`
+
+Optional. Controls the repository link behind the `Star Me` button in the UI.
+
+## Main Features
+
+### Resume Generation
+
+- Enter a GitHub username or visit `/<github-username>`
+- Generate recruiter-ready resume content from public GitHub activity
+- Export the generated output as Markdown, LaTeX, or PDF
+
+### GitHub Analysis
+
+- Public repositories
+- Top repositories ranked by signal
+- Language distribution
+- Pull requests opened
+- Pull requests merged
+- Issues opened
+- External repository contributions
+- Last 30 / 90 day activity windows
+
+### UI / UX
+
+- Animated landing experience
+- Light and dark theme support
+- Shareable route-based resume pages
+- Copy and download actions for generated outputs
+
+### Deployment
+
+- Next.js App Router
+- No database required
+- Vercel-friendly runtime model
+- Server-side caching for generated resumes
 
 ## API Endpoints
 
 ### `POST /api/resume`
+
 Request:
 
 ```json
-{ "username": "octocat" }
+{ "username": "R4M-0" }
 ```
 
 Response includes:
+
 - Raw GitHub metrics
-- Analysis output (top languages, focus area, consistency)
-- Generated resume artifacts (`markdown`, `latex`, bullets)
+- Analysis results
+- Generated Markdown
+- Generated LaTeX
+- Recruiter-focused summary and bullets
 
 ### `POST /api/resume/pdf`
+
 Request:
 
 ```json
-{ "username": "octocat", "markdown": "## ..." }
+{ "username": "R4M-0", "markdown": "# Resume..." }
 ```
 
-Returns downloadable PDF bytes (`application/pdf`).
+Returns downloadable PDF bytes with `application/pdf`.
 
-## Rate Limits and Errors
-Handled cases:
-- Invalid username format (`400`)
-- Username not found (`404`)
-- GitHub rate limit exceeded (`429` + reset time)
-- Empty/low-activity profiles (honest neutral phrasing)
-- Network/API failures (`5xx`)
+## Error Handling
+
+Handled scenarios:
+
+- Invalid GitHub username format
+- User not found
+- GitHub API rate limit exceeded
+- Empty or low-activity profiles
+- PDF generation failure
+- Unexpected upstream/API failures
+
+## Local Commands
+
+```bash
+npm run dev
+npm run build
+npm run start
+npm run typecheck
+```
 
 ## Deployment (Vercel)
 
-1. Push this project to a GitHub repository.
-2. Import repository into Vercel.
-3. Set `GITHUB_TOKEN` and `OPENROUTER_API_KEY` in Vercel Project Environment Variables.
+1. Push the repository to GitHub.
+2. Import it into Vercel.
+3. Set `GITHUB_TOKEN` and optionally `OPENROUTER_API_KEY`.
 4. Deploy.
+
+This project does not require a database or extra server configuration.
+
